@@ -1,0 +1,101 @@
+project_name: "web-api-service"
+version: "2.1.0"
+
+services:
+  - name: "api-gateway"
+    image: "registry.example.com/api-gateway:2.1.0"
+    replicas: 3
+    ports:
+      - containerPort: 8080
+        hostPort: 80
+      - containerPort: 8443
+        hostPort: 443
+    env:
+      - name: "NODE_ENV"
+        value: "production"
+      - name: "DB_HOST"
+        value: "postgres-primary.internal"
+      - name: "DB_PORT"
+        value: "5432"
+      - name: "REDIS_URL"
+        value: "redis://redis-cluster.internal:6379"
+      - name: "LOG_LEVEL"
+        value: "info"
+      - name: "API_KEY"
+        value: "${SECRET_API_KEY}"
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+
+  - name: "worker-service"
+    image: "registry.example.com/worker:2.1.0"
+    replicas: 2
+    env:
+      - name: "QUEUE_URL"
+        value: "amqp://rabbitmq.internal:5672"
+      - name: "WORKER_CONCURRENCY"
+        value: "10"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+
+  - name: "postgres"
+    image: "postgres:15-alpine"
+    replicas: 1
+    ports:
+      - containerPort: 5432
+    env:
+      - name: "POSTGRES_DB"
+        value: "webapi"
+      - name: "POSTGRES_USER"
+        value: "${DB_USER}"
+      - name: "POSTGRES_PASSWORD"
+        value: "${DB_PASSWORD}"
+    volumes:
+      - name: "pg-data"
+        mountPath: "/var/lib/postgresql/data"
+        size: "50Gi"
+
+  - name: "redis"
+    image: "redis:7-alpine"
+    replicas: 1
+    ports:
+      - containerPort: 6379
+
+load_balancer:
+  enabled: true
+  type: "nginx"
+  health_check:
+    path: "/health"
+    interval_seconds: 10
+    timeout_seconds: 5
+
+health_check:
+  endpoint: "http://api-gateway:8080/health"
+  expected_status: 200
+  timeout_seconds: 10
+  retry_count: 3
+
+deploy:
+  strategy: "rolling"
+  max_surge: "25%"
+  max_unavailable: "0"
+  progress_deadline_seconds: 600
+
+notifications:
+  slack_channel: "#deployments"
+  email:
+    - "devops@example.com"
+
+constraints:
+  max_downtime_seconds: 30
+  require_approval: true
+  maintenance_window: "02:00-06:00 UTC"
